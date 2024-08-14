@@ -12,6 +12,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
+
 public class ScheduleController {
 
     private final Map<Long, Schedule> scheduleList = new HashMap<>();
@@ -47,7 +48,7 @@ public class ScheduleController {
         return responseList;
     }
 
-    @GetMapping("/schedules/{scheduleId}")
+    @PutMapping("/schedules/{scheduleId}")
     public Long updateschedule(@PathVariable Long scheduleId, @RequestBody ScheduleRequestDto requestDto) {
         // 해당 메모가 DB에 존재하는지 확인
         // containsKey는 Map의 자료 구조에서 Key에 해당하는 부분에 데이터가
