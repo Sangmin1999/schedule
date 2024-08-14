@@ -2,34 +2,55 @@ package com.sparta.springfirst.controller;
 
 import com.sparta.springfirst.dto.ScheduleRequestDto;
 import com.sparta.springfirst.dto.ScheduleResponseDto;
+import com.sparta.springfirst.dto.UpdateDto;
 import com.sparta.springfirst.entity.Schedule;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Collections;
-import java.util.HashMap;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.Date;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
-
 public class ScheduleController {
 
-    private final Map<Long, Schedule> scheduleList = new HashMap<>();
+    private final JdbcTemplate jdbcTemplate;
+
+    public ScheduleController(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
+    }
 
     @PostMapping("/schedules")
     public ScheduleResponseDto createSchedule(@RequestBody ScheduleRequestDto requestDto) {
         // RequestDto -> Entity
         Schedule schedule = new Schedule(requestDto);
 
-        // Schedule Max ID Check
-        // scheduleList.keySet 메서드를 호출하면 Map에 들어있는 Long 값을 가져온다
-        // 그중에 가장 큰 값을 가져온다, 그대로 넣으면 중복되므로 가장 큰 값에 1을 더해서 넣어주고 아니면 1을 넣는다
-        Long maxId = scheduleList.size() > 0 ? Collections.max(scheduleList.keySet()) + 1 : 1;
-        schedule.setId(maxId);
-
         // DB 저장
-        scheduleList.put(schedule.getId(), schedule);
+        KeyHolder keyHolder = new GeneratedKeyHolder(); // 기본 키를 반환받기 위한 객체
+
+        
+        String sql = "INSERT INTO schedule (sd_username, contents, sd_passward) VALUES (?, ?, ? )";
+        jdbcTemplate.update( con -> {
+                    PreparedStatement preparedStatement = con.prepareStatement(sql,
+                            Statement.RETURN_GENERATED_KEYS);
+
+                    preparedStatement.setString(1, schedule.getUsername());
+                    preparedStatement.setString(2, schedule.getContents());
+                    preparedStatement.setString(3, schedule.getPassward());
+                    return preparedStatement;
+                },
+                keyHolder);
+
+        // DB Insert 후 받아온 기본키 확인
+        Long id = keyHolder.getKey().longValue();
+        schedule.setId(id);
 
         // Entity -> ResponseDto
         ScheduleResponseDto scheduleResponseDto = new ScheduleResponseDto(schedule);
@@ -38,41 +59,71 @@ public class ScheduleController {
     }
 
     @GetMapping("/schedules")
-    public List<ScheduleResponseDto> getSchedules() {
-        // Map To List
-        // values()를 이용하면 열거형의 모든 상수에 접근, stream()으로 하나씩 for문처럼 돌려준다
-        // stream으로 하나씩 나오는 schedule을 파라미터로 가지는 ScheduleResponseDto 생성자가 나온다
-        // 그것을 모아서 리스트를 만들어준다.
-        List<ScheduleResponseDto> responseList = scheduleList.values().stream().map(ScheduleResponseDto::new).toList();
+    public List<ScheduleResponseDto> getSchedule() {
+        // DB 조회
+        String sql = "SELECT * FROM schedule";
 
-        return responseList;
+        return jdbcTemplate.query(sql, new RowMapper<ScheduleResponseDto>() {
+            @Override
+            public ScheduleResponseDto mapRow(ResultSet rs, int rowNum) throws SQLException {
+                // SQL 의 결과로 받아온 Memo 데이터들을 MemoResponseDto 타입으로 변환해줄 메서드
+                Long id = rs.getLong("sd_id");
+                String username = rs.getString("sd_username");
+                String contents = rs.getString("contents");
+                Date creationDate = rs.getDate("sd_regdata");
+                Date modificationDate = rs.getDate("sd_modifydate");
+                return new ScheduleResponseDto(id, username, contents, creationDate, modificationDate);
+            }
+        });
     }
 
-    @PutMapping("/schedules/{scheduleId}")
-    public Long updateschedule(@PathVariable Long scheduleId, @RequestBody ScheduleRequestDto requestDto) {
+    @PutMapping("/schedules")
+    public ScheduleResponseDto updateSchedule(@RequestBody UpdateDto updateDto) {
+
+        String sql = "UPDATE schedule SET sd_username = ?, contents = ? WHERE sd_id = ? AND sd_passward = ?";
+        jdbcTemplate.update(sql, updateDto.getUsername(), updateDto.getContents(), updateDto.getId(), updateDto.getPasswards());
+        sql = "select * from schedule WHERE sd_id = ?";
+        return jdbcTemplate.query(sql, resultSet -> {
+            if (resultSet.next()) {
+                return new ScheduleResponseDto(resultSet.getLong("sd_id"), resultSet.getString("sd_username"), resultSet.getString("contents"),resultSet.getDate("sd_regdata"),resultSet.getDate("sd_modifydate"));
+            } else{
+                return null;
+            }
+        }, updateDto.getId());
+
+    }
+
+    @DeleteMapping("/schedules/{id}/{passward}")
+    public Long deleteSchedule(@PathVariable Long id, @PathVariable String passward) {
         // 해당 메모가 DB에 존재하는지 확인
-        // containsKey는 Map의 자료 구조에서 Key에 해당하는 부분에 데이터가
-        // 있는지 없는지 확인을 해주는 메서드, 반환타입은 boolean이다
-        if (scheduleList.containsKey(scheduleId)) {
-            // 해당 일정 가져오기
-            Schedule schedule = scheduleList.get(scheduleId);
-            // 해당 일정 수정
-            schedule.update(requestDto);
-            return schedule.getId();
+        Schedule schedule = findById(id);
+        if(schedule != null) {
+            // 일정 삭제
+            String sql = "DELETE FROM schedule WHERE sd_id = ? AND sd_passward = ?";
+            jdbcTemplate.update(sql, id, passward);
+
+            return id;
         } else {
             throw new IllegalArgumentException("선택한 일정은 존재하지 않습니다.");
         }
     }
 
-    @DeleteMapping("/schedules/{scheduleId}")
-    public Long deleteSchedule(@PathVariable Long scheduleId) {
-        // 해당 메모가 DB에 존재하는지 확인
-        if (scheduleList.containsKey(scheduleId)) {
-            // 해당 메모를 삭제하기
-            scheduleList.remove(scheduleId);
-            return scheduleId;
-        } else {
-            throw new IllegalArgumentException("선택한 일정은 존재하지 않습니다.");
-        }
+    @GetMapping("/schedules/read/{id}")
+    public Schedule findById(@PathVariable Long id) {
+        // DB 조회
+        String sql = "SELECT * FROM schedule WHERE sd_id = ?";
+
+        return jdbcTemplate.query(sql, resultSet -> {
+            if(resultSet.next()) {
+                Schedule schedule = new Schedule();
+                schedule.setUsername(resultSet.getString("sd_username"));
+                schedule.setContents(resultSet.getString("contents"));
+                schedule.setCreationDate(resultSet.getDate("sd_regdata"));
+                schedule.setModificationDate(resultSet.getDate("sd_modifydate"));
+                return schedule;
+            } else {
+                return null;
+            }
+        }, id);
     }
 }
