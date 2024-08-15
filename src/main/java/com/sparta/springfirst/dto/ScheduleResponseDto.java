@@ -29,4 +29,10 @@ public class ScheduleResponseDto {
     }
 
 
+    public ScheduleResponseDto(long id, String username, String contents, Date modificationDate) {
+        this.id = id;
+        this.username = username;
+        this.contents = contents;
+        this.modificationDate = modificationDate;
+    }
 }
