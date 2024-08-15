@@ -9,5 +9,5 @@ public class UpdateDto {
     private Long id;
     private String username;
     private String contents;
-    private String passwards;
+    private String passward;
 }
